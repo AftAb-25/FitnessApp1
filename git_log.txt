@@ -1,0 +1,112 @@
+﻿commit 643c3807d39d66b965f9ff6889c0913858e9f067
+Author: AftAb-25 <aftab123215@gmail.com>
+Date:   Thu Apr 23 22:00:00 2026 +0530
+
+    Update scripts for Render deployment
+
+ Desktop/FitApp/backend/package.json | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+commit b119c281b425bfe97d4a5e0e78e23bfaaa3be7d6
+Author: AftAb-25 <aftab123215@gmail.com>
+Date:   Thu Apr 23 21:43:09 2026 +0530
+
+    Initial commit for FitnessApp
+
+ Desktop/FitApp/.gitignore                          |    43 +
+ Desktop/FitApp/.idea/.gitignore                    |     3 +
+ Desktop/FitApp/.idea/FitApp.iml                    |     9 +
+ Desktop/FitApp/.idea/caches/deviceStreaming.xml    |  1610 +++
+ Desktop/FitApp/.idea/deviceManager.xml             |    13 +
+ Desktop/FitApp/.idea/markdown.xml                  |     8 +
+ Desktop/FitApp/.idea/misc.xml                      |     5 +
+ Desktop/FitApp/.idea/modules.xml                   |     8 +
+ Desktop/FitApp/.vscode/extensions.json             |     1 +
+ Desktop/FitApp/.vscode/settings.json               |     7 +
+ Desktop/FitApp/Ipt.txt                             |   Bin 0 -> 1434 bytes
+ Desktop/FitApp/README.md                           |    50 +
+ Desktop/FitApp/app.json                            |    48 +
+ Desktop/FitApp/app/(tabs)/_layout.tsx              |    63 +
+ Desktop/FitApp/app/(tabs)/index.tsx                |   470 +
+ Desktop/FitApp/app/(tabs)/nutrition.tsx            |   660 +
+ Desktop/FitApp/app/(tabs)/profile.tsx              |   427 +
+ Desktop/FitApp/app/(tabs)/progress.tsx             |   291 +
+ Desktop/FitApp/app/(tabs)/workouts.tsx             |   805 ++
+ Desktop/FitApp/app/_layout.tsx                     |    66 +
+ Desktop/FitApp/app/active-workout.tsx              |   455 +
+ Desktop/FitApp/app/add-food.tsx                    |   179 +
+ Desktop/FitApp/app/exercise-library.tsx            |   295 +
+ Desktop/FitApp/app/index.tsx                       |    25 +
+ Desktop/FitApp/app/login.tsx                       |   291 +
+ Desktop/FitApp/app/meal-plan.tsx                   |   159 +
+ Desktop/FitApp/app/modal.tsx                       |    29 +
+ Desktop/FitApp/app/onboarding.tsx                  |   272 +
+ Desktop/FitApp/app/workout-summary.tsx             |   306 +
+ .../assets/images/android-icon-background.png      |   Bin 0 -> 17549 bytes
+ .../assets/images/android-icon-foreground.png      |   Bin 0 -> 78796 bytes
+ .../assets/images/android-icon-monochrome.png      |   Bin 0 -> 4140 bytes
+ Desktop/FitApp/assets/images/favicon.png           |   Bin 0 -> 1129 bytes
+ Desktop/FitApp/assets/images/icon.png              |   Bin 0 -> 393493 bytes
+ .../FitApp/assets/images/nutrition/breakfast.png   |   Bin 0 -> 104486 bytes
+ Desktop/FitApp/assets/images/nutrition/dinner.png  |   Bin 0 -> 77627 bytes
+ Desktop/FitApp/assets/images/nutrition/lunch.png   |   Bin 0 -> 89138 bytes
+ Desktop/FitApp/assets/images/nutrition/snacks.png  |   Bin 0 -> 73118 bytes
+ .../FitApp/assets/images/partial-react-logo.png    |   Bin 0 -> 5075 bytes
+ Desktop/FitApp/assets/images/react-logo.png        |   Bin 0 -> 6341 bytes
+ Desktop/FitApp/assets/images/react-logo@2x.png     |   Bin 0 -> 14225 bytes
+ Desktop/FitApp/assets/images/react-logo@3x.png     |   Bin 0 -> 21252 bytes
+ Desktop/FitApp/assets/images/splash-icon.png       |   Bin 0 -> 17547 bytes
+ Desktop/FitApp/assets/images/workouts/gym.png      |   Bin 0 -> 84886 bytes
+ Desktop/FitApp/assets/images/workouts/home.png     |   Bin 0 -> 76168 bytes
+ Desktop/FitApp/assets/images/workouts/running.png  |   Bin 0 -> 107467 bytes
+ Desktop/FitApp/assets/images/workouts/yoga.png     |   Bin 0 -> 70865 bytes
+ Desktop/FitApp/backend/.gitignore                  |     5 +
+ Desktop/FitApp/backend/node_error.log              |    33 +
+ Desktop/FitApp/backend/out.txt                     |    16 +
+ Desktop/FitApp/backend/package-lock.json           |  3245 +++++
+ Desktop/FitApp/backend/package.json                |    40 +
+ Desktop/FitApp/backend/prisma.config.ts            |    14 +
+ Desktop/FitApp/backend/prisma/pullPublicData.ts    |    80 +
+ Desktop/FitApp/backend/prisma/schema.prisma        |   114 +
+ Desktop/FitApp/backend/prisma/seed.ts              |   245 +
+ Desktop/FitApp/backend/prisma_out.txt              |   Bin 0 -> 2442 bytes
+ Desktop/FitApp/backend/schema.sql                  |    48 +
+ .../backend/src/controllers/authController.ts      |    72 +
+ .../src/controllers/externalApiController.ts       |    62 +
+ .../backend/src/controllers/nutritionController.ts |    62 +
+ .../backend/src/controllers/userController.ts      |    27 +
+ .../backend/src/controllers/workoutController.ts   |    57 +
+ Desktop/FitApp/backend/src/db.ts                   |     8 +
+ .../backend/src/middlewares/authMiddleware.ts      |    18 +
+ Desktop/FitApp/backend/src/routes/index.ts         |    34 +
+ Desktop/FitApp/backend/src/server.ts               |    22 +
+ Desktop/FitApp/backend/test-api.ts                 |    40 +
+ Desktop/FitApp/backend/test-db.ts                  |    16 +
+ Desktop/FitApp/backend/ts_error.log                |     0
+ Desktop/FitApp/backend/tsconfig.json               |    15 +
+ Desktop/FitApp/branch_current.txt                  |   Bin 0 -> 22 bytes
+ Desktop/FitApp/components/NotificationBanner.tsx   |   105 +
+ Desktop/FitApp/components/external-link.tsx        |    25 +
+ Desktop/FitApp/components/haptic-tab.tsx           |    18 +
+ Desktop/FitApp/components/hello-wave.tsx           |    19 +
+ Desktop/FitApp/components/parallax-scroll-view.tsx |    79 +
+ Desktop/FitApp/components/themed-text.tsx          |    60 +
+ Desktop/FitApp/components/themed-view.tsx          |    14 +
+ Desktop/FitApp/components/ui/collapsible.tsx       |    45 +
+ Desktop/FitApp/components/ui/icon-symbol.ios.tsx   |    32 +
+ Desktop/FitApp/components/ui/icon-symbol.tsx       |    41 +
+ Desktop/FitApp/constants/exercises.ts              |    63 +
+ Desktop/FitApp/constants/theme.ts                  |    65 +
+ Desktop/FitApp/eslint.config.js                    |    10 +
+ Desktop/FitApp/gsoc_proposal.md.resolved           |   843 ++
+ Desktop/FitApp/hooks/use-color-scheme.ts           |     1 +
+ Desktop/FitApp/hooks/use-color-scheme.web.ts       |    21 +
+ Desktop/FitApp/hooks/use-theme-color.ts            |    21 +
+ Desktop/FitApp/ip.txt                              |    31 +
+ Desktop/FitApp/package-lock.json                   | 13079 +++++++++++++++++++
+ Desktop/FitApp/package.json                        |    52 +
+ Desktop/FitApp/scripts/reset-project.js            |   112 +
+ Desktop/FitApp/store/useSocialStore.ts             |   123 +
+ Desktop/FitApp/store/useStore.ts                   |   444 +
+ Desktop/FitApp/tsconfig.json                       |    17 +
+ 96 files changed, 26191 insertions(+)

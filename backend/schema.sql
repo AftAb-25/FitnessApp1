@@ -1,0 +1,48 @@
+CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255),
+    email VARCHAR(255) UNIQUE NOT NULL,
+    age INTEGER,
+    weight FLOAT,
+    height FLOAT,
+    goal VARCHAR(50),
+    activity_level VARCHAR(50),
+    streak INTEGER DEFAULT 0,
+    level INTEGER DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS workouts (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    date DATE NOT NULL,
+    mode VARCHAR(50) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS workout_sets (
+    id SERIAL PRIMARY KEY,
+    workout_id INTEGER REFERENCES workouts(id) ON DELETE CASCADE,
+    exercise_id VARCHAR(255) NOT NULL,
+    completed BOOLEAN DEFAULT false
+);
+
+CREATE TABLE IF NOT EXISTS nutrition_logs (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    date DATE NOT NULL,
+    water_glasses INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS foods (
+    id SERIAL PRIMARY KEY,
+    log_id INTEGER REFERENCES nutrition_logs(id) ON DELETE CASCADE,
+    meal VARCHAR(50) NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    calories INTEGER NOT NULL,
+    protein INTEGER DEFAULT 0,
+    carbs INTEGER DEFAULT 0,
+    fat INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

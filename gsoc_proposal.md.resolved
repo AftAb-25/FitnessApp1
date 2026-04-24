@@ -1,0 +1,843 @@
+<![CDATA[<div align="center">
+
+![MLLAM Logo](https://avatars.githubusercontent.com/u/149403204?s=200&v=4)
+
+# **MLLAM — Machine Learning for Limited Area Modeling**
+
+---
+
+# Google Summer of Code 2025 Proposal
+
+## **Generalizing Neural-LAM to Probabilistic Forecasting Models**
+
+**Organization:** MLLAM (Machine Learning for Limited Area Modeling)  
+**Project:** Neural-LAM — Research Software for Neural Weather Prediction  
+**Difficulty:** Large | **Duration:** 350 hours  
+
+---
+
+</div>
+
+---
+
+# 1. Title
+
+**Generalizing Neural-LAM to Probabilistic Forecasting Models**
+
+---
+
+# 2. Abstract
+
+Weather is inherently chaotic — a single deterministic forecast, no matter how accurate, cannot fully capture the range of possible atmospheric outcomes. The scientific community is increasingly recognizing that **probabilistic ensemble forecasting** is the path forward for actionable weather prediction. Research prototypes like **Graph-EFM** (Oskarsson et al., 2024) and **Diffusion-LAM** (2025) have demonstrated the immense potential of generative machine learning for producing spatially coherent ensemble forecasts, yet these innovations remain isolated in research branches and cannot be easily integrated into the main neural-lam codebase.
+
+This proposal addresses that gap. I will **restructure the neural-lam model architecture** to natively support both deterministic and probabilistic forecasting paradigms. The work involves:
+
+1. **Refactoring the model class hierarchy** — decomposing the monolithic [ARModel](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/models/ar_model.py#24-771) into composable components (`ForecasterModule`, `Forecaster`, `ARForecaster`, `StepPredictor`) following the design proposed in Issue [#49](https://github.com/mllam/neural-lam/issues/49), enabling non-autoregressive and ensemble-based model formulations.
+
+2. **Implementing ensemble-aware metrics** — adding sample-based CRPS, ensemble spread, rank histograms, and reliability diagrams to the metrics module, moving beyond the current deterministic-only evaluation.
+
+3. **Building ensemble visualization tools** — creating spatial ensemble mean/spread plots, spaghetti plots, and animated ensemble evolution displays that integrate with the existing plotting infrastructure.
+
+4. **Integrating a reference probabilistic model** — porting the Graph-EFM model from the `prob_model_lam` branch (Issue [#62](https://github.com/mllam/neural-lam/issues/62)) into the new architecture as a concrete demonstration of the generalized framework.
+
+The result will be a neural-lam that is **architecturally ready** for the probabilistic future of neural weather prediction — extensible, well-tested, and documented.
+
+---
+
+# 3. Benefits to the Community
+
+### For the MLLAM Community
+- **Unblocks research integration**: Probabilistic models like Graph-EFM and Diffusion-LAM can finally be merged into the main repository, eliminating the current "big discrepancy" with how the codebase is structured.
+- **Reduces duplication**: Researchers currently maintain separate forks for probabilistic work. A generalized framework means future probabilistic models slot into the same codebase.
+- **Accelerates innovation**: By providing ensemble-aware training, evaluation, and visualization out-of-the-box, researchers can focus on novel model architectures rather than boilerplate infrastructure.
+
+### For National Weather Services & Operational Forecasters
+- **Better uncertainty quantification**: Ensemble forecasts from neural models can complement or enhance traditional NWP ensembles, providing uncertainty information at a fraction of the computational cost.
+- **Regional high-resolution ensembles**: Neural-LAM's focus on Limited Area Modeling means this enables high-resolution probabilistic forecasts for specific regions — exactly what national weather services need.
+
+### For the Open-Source ML-Weather Community
+- **Reference implementation**: A clean, well-documented probabilistic forecasting framework benefits the broader community working on ML weather prediction (GraphCast, Pangu-Weather, GenCast, etc).
+- **Reproducible research**: Standardized metrics (CRPS, spread-skill) and visualization tools make it easier to compare and reproduce probabilistic forecasting experiments.
+
+### For Students & New Contributors
+- **Lower barrier to entry**: The refactored class hierarchy with clear separation of concerns makes the codebase far more approachable than the current monolithic [ARModel](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/models/ar_model.py#24-771).
+- **Educational value**: A codebase that explicitly shows deterministic vs. probabilistic forecasting patterns serves as a learning resource for ML weather prediction.
+
+---
+
+# 4. Deliverables
+
+Each deliverable is concrete, testable, and has clear acceptance criteria:
+
+| # | Deliverable | Acceptance Criteria | Target Week |
+|---|------------|---------------------|-------------|
+| **D1** | Refactored model hierarchy | `ForecasterModule`, `Forecaster`, `ARForecaster`, `StepPredictor` classes implemented; all existing models (GraphLAM, HiLAM, HiLAMParallel) work identically through the new hierarchy; 100% of existing tests pass | Weeks 1–3 |
+| **D2** | Probabilistic metrics module | `crps_ens()`, `spread_squared()`, `rank_histogram()` functions implemented with full unit tests; integrated into the `DEFINED_METRICS` registry | Weeks 4–5 |
+| **D3** | Ensemble visualization tools | `plot_ensemble_prediction()`, `plot_ensemble_spread()`, `plot_rank_histogram()` functions implemented; integrated with the existing [plot_examples()](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/models/ar_model.py#466-593) pipeline in [ARModel](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/models/ar_model.py#24-771) | Week 6 |
+| **D4** | `EnsembleForecaster` base class | Abstract ensemble forecaster that samples multiple possible forecasts; compatible with both AR and non-AR strategies; unit tested | Week 7 |
+| **D5** | Graph-EFM integration | Graph-EFM model from `prob_model_lam` branch refactored into the new hierarchy; can train, evaluate with ensemble metrics, and produce ensemble visualizations | Weeks 8–10 |
+| **D6** | Documentation & examples | Comprehensive docs for the new architecture, API reference for metrics/vis, a tutorial notebook demonstrating ensemble forecasting workflow | Weeks 11–12 |
+| **D7** | Full test suite | Integration tests for the probabilistic pipeline, regression tests against `prob_model_lam` branch outputs, CI green | Continuous |
+
+---
+
+# 5. Technical Details
+
+## 5.1 Current Architecture & Its Limitations
+
+The current neural-lam model hierarchy is:
+
+```
+pytorch_lightning.LightningModule
+    └── ARModel (ar_model.py, ~771 lines)
+            ├── BaseGraphModel (base_graph_model.py)
+            │       ├── GraphLAM (graph_lam.py)
+            │       └── BaseHiGraphModel (base_hi_graph_model.py)
+            │               ├── HiLAM (hi_lam.py)
+            │               └── HiLAMParallel (hi_lam_parallel.py)
+```
+
+**Key limitations:**
+
+1. **Monolithic [ARModel](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/models/ar_model.py#24-771)**: This single 771-line class handles logging, device management, forecast unrolling, loss computation, plotting, metric aggregation, and checkpoint management. Adding probabilistic support means touching *all* of these responsibilities.
+
+2. **Hardcoded deterministic assumption**: The [unroll_prediction()](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/models/ar_model.py#230-278) method returns a single [(B, pred_steps, num_grid_nodes, d_f)](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/metrics.py#87-109) tensor — there is no ensemble dimension. The [predict_step()](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/models/ar_model.py#221-229) interface returns a single next-state prediction.
+
+3. **Deterministic-only metrics**: The metrics module ([metrics.py](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/metrics.py)) has [mse](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/metrics.py#87-109), [mae](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/metrics.py#142-164), [wmse](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/metrics.py#56-85), [wmae](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/metrics.py#111-140), [nll](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/metrics.py#166-191), and [crps_gauss](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/metrics.py#193-228) — but no sample-based ensemble metrics like sample CRPS or spread.
+
+4. **Single-prediction visualization**: [vis.py](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/vis.py) has [plot_prediction()](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/vis.py#214-275) that plots a single forecast vs. ground truth, with no ensemble visualization capabilities.
+
+## 5.2 Proposed Architecture
+
+Following the design in Issue [#49](https://github.com/mllam/neural-lam/issues/49), the refactored hierarchy separates concerns:
+
+```
+pytorch_lightning.LightningModule
+    └── ForecasterModule
+            ├── Uses: Forecaster (composition, not inheritance)
+            ├── Handles: logging, device mgmt, train/val/test steps
+            ├── Handles: loss computation, metric aggregation
+            └── Handles: plotting dispatch
+
+Forecaster (abstract)
+    ├── ARForecaster
+    │       └── Uses: StepPredictor (composition)
+    ├── EnsembleARForecaster (NEW)
+    │       └── Uses: StochasticStepPredictor (NEW)
+    └── DirectForecaster (future extensibility)
+
+StepPredictor (abstract)
+    ├── GraphLAMPredictor
+    ├── HiLAMPredictor
+    └── HiLAMParallelPredictor
+
+StochasticStepPredictor (abstract, NEW)
+    └── GraphEFMPredictor (NEW)
+```
+
+### Key Design Decisions
+
+**Composition over Inheritance**: `ForecasterModule` *uses* a `Forecaster` rather than *being* one. This means we can swap forecasting strategies without touching the Lightning training loop.
+
+**Ensemble dimension convention**: Probabilistic forecasters return tensors with shape [(B, num_ensemble, pred_steps, num_grid_nodes, d_f)](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/metrics.py#87-109). Deterministic models return the same with `num_ensemble=1`, ensuring a unified interface.
+
+**Backward compatibility**: The existing model classes will be thin wrappers that delegate to the new components. All existing CLI commands and configs continue to work.
+
+## 5.3 Detailed Component Design
+
+### 5.3.1 ForecasterModule
+
+```python
+class ForecasterModule(pl.LightningModule):
+    """
+    Lightning module that orchestrates training, validation, testing.
+    Delegates actual forecasting to a Forecaster instance.
+    """
+    def __init__(self, args, config, datastore, forecaster: Forecaster):
+        super().__init__()
+        self.forecaster = forecaster
+        # Move logging, metric computation, plotting here from ARModel
+        self.metrics_config = args.metrics  
+        self.interior_mask = ...
+        
+    def training_step(self, batch, batch_idx):
+        init_states, target_states, forcing = self._unpack_batch(batch)
+        # Forecaster returns (B, [E], pred_steps, N, d_f)
+        prediction = self.forecaster(init_states, forcing, target_states)
+        loss = self._compute_loss(prediction, target_states)
+        self.log("train_loss", loss)
+        return loss
+    
+    def _compute_loss(self, prediction, target):
+        """Handles both deterministic and ensemble predictions."""
+        if prediction.dim() == 5:  # ensemble: (B, E, T, N, d)
+            # Use ensemble-aware loss (e.g., CRPS)
+            return self._ensemble_loss(prediction, target)
+        else:  # deterministic: (B, T, N, d)
+            return self._deterministic_loss(prediction, target)
+```
+
+### 5.3.2 Forecaster Abstraction
+
+```python
+class Forecaster(torch.nn.Module, ABC):
+    """Abstract base: maps initial states + forcing -> full forecast."""
+    
+    @abstractmethod
+    def forward(
+        self, 
+        init_states: torch.Tensor,      # (B, 2, N, d_f)
+        forcing: torch.Tensor,           # (B, T, N, d_forcing)
+        target_states: torch.Tensor,     # (B, T, N, d_f) for teacher forcing
+        num_ensemble: int = 1,           # Number of ensemble members
+    ) -> torch.Tensor:
+        """
+        Returns: (B, [E], T, N, d_f) forecast tensor.
+        E dimension present only if num_ensemble > 1.
+        """
+        ...
+
+
+class ARForecaster(Forecaster):
+    """Auto-regressive forecaster using a StepPredictor."""
+    
+    def __init__(self, step_predictor: StepPredictor):
+        super().__init__()
+        self.step_predictor = step_predictor
+    
+    def forward(self, init_states, forcing, target_states, num_ensemble=1):
+        predictions = []
+        prev_prev_state = init_states[:, 0]  # (B, N, d_f)
+        prev_state = init_states[:, 1]        # (B, N, d_f)
+        
+        for t in range(forcing.shape[1]):
+            pred = self.step_predictor(prev_prev_state, prev_state, 
+                                        forcing[:, t])
+            predictions.append(pred)
+            prev_prev_state = prev_state
+            prev_state = pred
+        
+        return torch.stack(predictions, dim=1)  # (B, T, N, d_f)
+```
+
+### 5.3.3 Ensemble-Aware Forecaster
+
+```python
+class EnsembleARForecaster(Forecaster):
+    """
+    AR forecaster that generates ensemble members by sampling
+    from a stochastic step predictor at each time step.
+    """
+    def __init__(self, stochastic_predictor: StochasticStepPredictor):
+        super().__init__()
+        self.predictor = stochastic_predictor
+    
+    def forward(self, init_states, forcing, target_states, num_ensemble=10):
+        # Generate num_ensemble independent rollouts
+        ensemble_predictions = []
+        for e in range(num_ensemble):
+            predictions = []
+            prev_prev = init_states[:, 0]
+            prev = init_states[:, 1]
+            
+            for t in range(forcing.shape[1]):
+                # Stochastic: samples latent variable z
+                pred = self.predictor.sample(prev_prev, prev, forcing[:, t])
+                predictions.append(pred)
+                prev_prev = prev
+                prev = pred
+            
+            ensemble_predictions.append(torch.stack(predictions, dim=1))
+        
+        return torch.stack(ensemble_predictions, dim=1)  # (B, E, T, N, d_f)
+```
+
+### 5.3.4 StochasticStepPredictor (for Graph-EFM)
+
+```python
+class StochasticStepPredictor(StepPredictor, ABC):
+    """Step predictor with a latent variable for stochastic sampling."""
+    
+    @abstractmethod
+    def sample(self, prev_prev_state, prev_state, forcing) -> torch.Tensor:
+        """Sample a single prediction by sampling latent z ~ p(z|x)."""
+        ...
+    
+    @abstractmethod
+    def forward_with_kl(self, prev_prev_state, prev_state, forcing, 
+                         target) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Forward pass during training: returns (prediction, kl_divergence).
+        Uses posterior q(z|x, y) for z sampling during training.
+        """
+        ...
+```
+
+## 5.4 Probabilistic Metrics
+
+### 5.4.1 Sample-Based CRPS
+
+The Continuous Ranked Probability Score measures the quality of probabilistic forecasts. For ensemble forecasts, the sample-based CRPS is:
+
+$$\text{CRPS}(F, y) = \frac{1}{M}\sum_{m=1}^{M}|x_m - y| - \frac{1}{2M^2}\sum_{m=1}^{M}\sum_{j=1}^{M}|x_m - x_j|$$
+
+```python
+def crps_ens(
+    ensemble_pred: torch.Tensor,  # (B, E, N, d_state)
+    target: torch.Tensor,         # (B, N, d_state)
+    mask=None, average_grid=True, sum_vars=True,
+):
+    """
+    Sample-based CRPS for ensemble predictions.
+    
+    First term: mean absolute error of each member.
+    Second term: mean pairwise absolute difference between members.
+    """
+    M = ensemble_pred.shape[1]  # ensemble size
+    
+    # Term 1: E[|X - y|]
+    abs_errors = torch.abs(ensemble_pred - target.unsqueeze(1))  # (B,E,N,d)
+    term1 = abs_errors.mean(dim=1)  # (B, N, d)
+    
+    # Term 2: E[|X - X'|] / 2
+    # Efficient computation using sorted ensemble members
+    sorted_ens, _ = torch.sort(ensemble_pred, dim=1)
+    # Use the identity: sum|xi-xj| = 2*sum_i (2i-M-1)*x_(i) for sorted x
+    weights = (2 * torch.arange(1, M+1, device=ensemble_pred.device) 
+               - M - 1).float()
+    term2 = (sorted_ens * weights[None, :, None, None]).sum(dim=1) / (M * M)
+    
+    crps = term1 - term2
+    return mask_and_reduce_metric(crps, mask, average_grid, sum_vars)
+```
+
+### 5.4.2 Ensemble Spread
+
+```python
+def spread_squared(
+    ensemble_pred: torch.Tensor,  # (B, E, N, d_state)
+    target: torch.Tensor,         # (B, N, d_state) — unused, for API compat
+    mask=None, average_grid=True, sum_vars=True,
+):
+    """
+    Squared ensemble spread = variance across ensemble members.
+    Used for spread-skill relationships.
+    """
+    ens_mean = ensemble_pred.mean(dim=1, keepdim=True)  # (B, 1, N, d)
+    spread = ((ensemble_pred - ens_mean) ** 2).mean(dim=1)  # (B, N, d)
+    return mask_and_reduce_metric(spread, mask, average_grid, sum_vars)
+```
+
+### 5.4.3 Rank Histogram
+
+```python
+def rank_histogram(
+    ensemble_pred: torch.Tensor,  # (B, E, N, d_state)
+    target: torch.Tensor,         # (B, N, d_state)
+):
+    """
+    Compute rank histogram for calibration assessment.
+    Returns histogram counts of shape (E+1, d_state).
+    A well-calibrated ensemble produces a flat rank histogram.
+    """
+    M = ensemble_pred.shape[1]
+    # Count how many ensemble members are below the observation
+    ranks = (ensemble_pred < target.unsqueeze(1)).sum(dim=1)  # (B, N, d)
+    
+    # Build histogram
+    histogram = torch.zeros(M + 1, ensemble_pred.shape[-1], 
+                           device=ensemble_pred.device)
+    for rank in range(M + 1):
+        histogram[rank] = (ranks == rank).float().sum(dim=(0, 1))
+    
+    return histogram
+```
+
+## 5.5 Ensemble Visualization
+
+### 5.5.1 Ensemble Prediction Plot
+
+```python
+def plot_ensemble_prediction(
+    datastore,
+    da_ensemble: xr.DataArray,  # (ensemble, grid_y, grid_x)
+    da_target: xr.DataArray,    # (grid_y, grid_x)
+    title=None,
+    num_members_to_show=4,
+):
+    """
+    Plot panel: ensemble mean | ensemble spread | target | selected members.
+    
+    Layout:
+    ┌──────────────┬──────────────┬──────────────┐
+    │ Ensemble Mean│   Spread     │   Target     │
+    ├──────────────┼──────────────┼──────────────┤
+    │  Member 1    │  Member 2    │  Member 3    │
+    └──────────────┴──────────────┴──────────────┘
+    """
+    ens_mean = da_ensemble.mean(dim="ensemble")
+    ens_std = da_ensemble.std(dim="ensemble")
+    
+    n_show = min(num_members_to_show, da_ensemble.sizes["ensemble"])
+    nrows = 1 + (n_show + 2) // 3
+    ncols = 3
+    
+    fig, axes = plt.subplots(nrows, ncols, figsize=(15, 5*nrows),
+                              subplot_kw={"projection": ccrs.PlateCarree()})
+    
+    # Top row: mean, spread, target
+    plot_on_axis(axes[0, 0], ens_mean, datastore, ax_title="Ensemble Mean")
+    plot_on_axis(axes[0, 1], ens_std, datastore, ax_title="Ensemble Spread",
+                 cmap="YlOrRd")
+    plot_on_axis(axes[0, 2], da_target, datastore, ax_title="Ground Truth")
+    
+    # Bottom rows: individual members
+    for i in range(n_show):
+        row = 1 + i // 3
+        col = i % 3
+        member = da_ensemble.isel(ensemble=i)
+        plot_on_axis(axes[row, col], member, datastore,
+                     ax_title=f"Member {i+1}")
+    
+    fig.suptitle(title or "Ensemble Forecast", fontsize=_TITLE_SIZE)
+    fig.tight_layout()
+    return fig
+```
+
+### 5.5.2 Rank Histogram Plot
+
+```python
+def plot_rank_histogram(histogram, variable_names=None, title=None):
+    """
+    Plot rank histogram for ensemble calibration assessment.
+    A flat histogram indicates a well-calibrated ensemble.
+    """
+    n_ranks, n_vars = histogram.shape
+    n_show = min(n_vars, 6)
+    
+    fig, axes = plt.subplots(1, n_show, figsize=(4*n_show, 3))
+    if n_show == 1:
+        axes = [axes]
+    
+    for i, ax in enumerate(axes):
+        ax.bar(range(n_ranks), histogram[:, i].cpu().numpy(), 
+               color="steelblue", alpha=0.8)
+        ax.axhline(histogram[:, i].mean().item(), color="red", 
+                    linestyle="--", label="Uniform")
+        var_name = variable_names[i] if variable_names else f"Var {i}"
+        ax.set_title(var_name)
+        ax.set_xlabel("Rank")
+        ax.set_ylabel("Count")
+        ax.legend()
+    
+    fig.suptitle(title or "Rank Histogram", fontsize=_TITLE_SIZE)
+    fig.tight_layout()
+    return fig
+```
+
+## 5.6 Graph-EFM Integration
+
+The Graph-EFM model (Oskarsson et al., 2024) is a variational probabilistic forecasting model that uses a hierarchical graph structure with latent variables. It maps into the new architecture as:
+
+```
+ForecasterModule
+    └── EnsembleARForecaster
+            └── GraphEFMPredictor (StochasticStepPredictor)
+                    ├── Encoder: grid → mesh embedding
+                    ├── Processor: message passing on hierarchical mesh
+                    ├── LatentEncoder: posterior q(z|x,y) / prior p(z|x)
+                    ├── LatentDecoder: z → mesh perturbation
+                    └── Decoder: mesh → grid prediction
+```
+
+**Key adaptation steps:**
+1. Extract the GNN backbone from the existing `prob_model_lam` branch's `GraphEFM(ARModel)` class
+2. Split into `GraphEFMPredictor` (implements `StochasticStepPredictor`) and `PropagationNet` GNN layer
+3. Wire the KL divergence loss through `forward_with_kl()` into `ForecasterModule._compute_loss()`
+4. Ensure the `PropagationNet` layer is also available for deterministic models as an alternative to `InteractionNet`
+
+## 5.7 Training Pipeline Changes
+
+```python
+# Example: training a probabilistic model
+# config.yaml now supports:
+model:
+  architecture: "graph_efm"
+  forecaster_type: "ensemble_ar"  # NEW
+  num_ensemble_train: 5           # NEW: ensemble size during training
+  num_ensemble_eval: 50           # NEW: ensemble size during evaluation
+  loss: "crps_ens"                # NEW: ensemble-aware loss
+  
+training:
+  metrics:
+    - crps_ens                    # NEW
+    - spread_squared              # NEW
+    - mse                         # On ensemble mean, for comparison
+```
+
+The `ForecasterModule` will detect the forecaster type and automatically:
+- Use ensemble-aware loss functions during training
+- Generate multiple ensemble members during evaluation
+- Log ensemble-specific metrics alongside traditional deterministic metrics
+- Produce ensemble visualizations during test
+
+---
+
+# 6. My Contributions
+
+I have been actively contributing to the neural-lam project, focusing on improving robustness, fixing bugs, and adding tests. My contributions demonstrate deep familiarity with the exact code areas this project will modify:
+
+### Merged / In-Review PRs
+
+| PR | Title | Relevance to This Project |
+|----|-------|--------------------------|
+| [#303](https://github.com/mllam/neural-lam/pull/303) | `fix: separate figure and scalar logging in aggregate_and_plot_metrics` | Directly touches the metric logging pipeline in [ARModel](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/models/ar_model.py#24-771) that will be refactored into `ForecasterModule`. Demonstrates understanding of how metrics flow through the system. |
+| [#333](https://github.com/mllam/neural-lam/pull/333) | `fix: sort analysis times in _get_analysis_times to ensure chronological order` | Fixed a data ordering bug in the datastore, showing understanding of the data pipeline. |
+| [#340](https://github.com/mllam/neural-lam/pull/340) | `fix: guard against division by zero in plot_error_map` | Fixed a numerical stability issue in [vis.py](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/vis.py) plotting — the exact module I will extend with ensemble visualizations. |
+| [#386](https://github.com/mllam/neural-lam/pull/386) | `Fix/npyfilesmeps duplicate analysis times` | Fixed duplicate analysis times in the Npy datastore, demonstrating understanding of data handling across datastore backends. |
+| [#388](https://github.com/mllam/neural-lam/pull/388) | `fix: handle scalar metrics in aggregate_and_plot_metrics when --metrics_watch is set` | Fixed the metric aggregation when `--metrics_watch` is specified. This is in the core `ARModel.aggregate_and_plot_metrics()` method that will be refactored. |
+| [#440](https://github.com/mllam/neural-lam/pull/440) | `test: add regression tests for --metrics_watch crash path (issue #302)` | Added regression tests for the metrics pipeline. Testing mentality is critical for a project of this scope. |
+
+### Community Engagement
+- Active in the MLLAM Slack workspace, participating in `#gsoc-project3` discussions
+- Reviewed multiple PRs from other contributors
+- Filed and investigated issues related to metrics and visualization
+
+---
+
+# 7. Timeline (Week-by-Week)
+
+## Community Bonding Period (May 8 – June 1, 2025)
+
+**Goal**: Deep preparation to hit the ground running on Day 1.
+
+- **Week CB-1 (May 8–14)**:
+  - Set up development environment with GPU access for training experiments
+  - Read the Graph-EFM paper (arXiv:2406.04759) and Diffusion-LAM paper (arXiv:2502.07532) in detail
+  - Study the `prob_model_lam` branch code thoroughly
+  - Document the current [ARModel](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/models/ar_model.py#24-771) class responsibilities
+
+- **Week CB-2 (May 15–21)**:
+  - Create a detailed mapping: current [ARModel](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/models/ar_model.py#24-771) methods → new component classes
+  - Write a design doc for the `Forecaster` abstraction interface
+  - Discuss the interface design with mentors (Joel, Hauke, Leif) on Slack
+  - Set up the MEPS dataset for local training experiments
+
+- **Week CB-3 (May 22–June 1)**:
+  - Prototype the `ForecasterModule` / `Forecaster` split on a branch
+  - Write a proof-of-concept `ARForecaster` with a simple `StepPredictor`
+  - Verify that model outputs are bit-identical to the current implementation
+  - Write a short blog post about the planned architecture
+
+---
+
+## Coding Period Phase 1: Architecture Refactoring (Weeks 1–6)
+
+### Week 1 (June 2–8): ForecasterModule Skeleton
+
+**Deliverables:**
+- [ ] Create `neural_lam/forecaster_module.py` with `ForecasterModule` class
+- [ ] Move logging, device handling, [configure_optimizers()](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/models/ar_model.py#201-206) from [ARModel](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/models/ar_model.py#24-771)
+- [ ] Move [_create_dataarray_from_tensor()](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/models/ar_model.py#163-200), [interior_mask_bool()](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/models/ar_model.py#207-213), [expand_to_batch()](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/models/ar_model.py#214-220) to `ForecasterModule`
+- [ ] Write unit tests for `ForecasterModule` initialization
+
+**Acceptance:** `ForecasterModule` initializes correctly with a mock `Forecaster`.
+
+### Week 2 (June 9–15): Forecaster & StepPredictor Abstractions
+
+**Deliverables:**
+- [ ] Create `neural_lam/forecasters/base.py` with abstract `Forecaster` class
+- [ ] Create `neural_lam/forecasters/ar.py` with `ARForecaster` class  
+- [ ] Create `neural_lam/predictors/base.py` with abstract `StepPredictor` class
+- [ ] Port [unroll_prediction()](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/models/ar_model.py#230-278) logic from [ARModel](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/models/ar_model.py#24-771) into `ARForecaster.forward()`
+- [ ] Wire existing `GraphLAM` as a `StepPredictor` subclass
+
+**Acceptance:** `ARForecaster` + `GraphLAMPredictor` produces identical outputs to current `GraphLAM` model.
+
+### Week 3 (June 16–22): Complete Model Migration
+
+**Deliverables:**
+- [ ] Port `HiLAM` and `HiLAMParallel` as `StepPredictor` subclasses
+- [ ] Move [training_step()](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/models/ar_model.py#297-320), [validation_step()](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/models/ar_model.py#334-372), [test_step()](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/models/ar_model.py#385-465) into `ForecasterModule`
+- [ ] Move [common_step()](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/models/ar_model.py#279-296) and loss computation into `ForecasterModule`
+- [ ] Ensure backward compatibility: old CLI commands work with new classes
+- [ ] Full regression test: train for 5 epochs, compare loss curves
+
+**Acceptance:** All existing tests pass. Training produces identical loss values for 5 epochs (tolerance: 1e-6).
+
+### Week 4 (June 23–29): Probabilistic Metrics Implementation
+
+**Deliverables:**
+- [ ] Implement `crps_ens()` in [metrics.py](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/metrics.py) with unit tests
+- [ ] Implement `spread_squared()` in [metrics.py](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/metrics.py) with unit tests
+- [ ] Implement `rank_histogram()` in [metrics.py](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/metrics.py) with unit tests
+- [ ] Add all new metrics to `DEFINED_METRICS` registry
+- [ ] Write validation tests against known analytical results (e.g., CRPS of a single-member ensemble equals MAE)
+
+**Acceptance:** All metric functions pass unit tests. `crps_ens` with 1 member equals MAE. Known ensemble distributions produce expected CRPS values.
+
+### Week 5 (June 30–July 6): Ensemble Metric Integration
+
+**Deliverables:**
+- [ ] Extend `ForecasterModule.common_step()` to detect ensemble predictions
+- [ ] Update [create_metric_log_dict()](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/models/ar_model.py#594-635) to handle ensemble metrics
+- [ ] Update [aggregate_and_plot_metrics()](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/models/ar_model.py#636-688) for ensemble-aware aggregation
+- [ ] Add ensemble metric logging to validation and test steps
+- [ ] Write integration tests for the full metric pipeline with mock ensemble predictions
+
+**Acceptance:** `ForecasterModule` correctly logs both deterministic and ensemble metrics during train/val/test.
+
+### Week 6 (July 7–13): Ensemble Visualization — MIDTERM
+
+**Deliverables:**
+- [ ] Implement `plot_ensemble_prediction()` in [vis.py](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/vis.py)
+- [ ] Implement `plot_ensemble_spread()` in [vis.py](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/vis.py) 
+- [ ] Implement `plot_rank_histogram()` in [vis.py](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/vis.py)
+- [ ] Integrate ensemble plotting into `ForecasterModule.plot_examples()`
+- [ ] Write visual regression tests (compare generated plots against reference images)
+
+**Midterm Acceptance Criteria:**
+- ✅ Model hierarchy refactored and all existing tests pass
+- ✅ Probabilistic metrics (CRPS, spread, rank histogram) implemented and tested
+- ✅ Ensemble visualization tools working
+- ✅ The codebase is ready to accept a probabilistic model
+
+> **Midterm deliverable**: A branch where existing deterministic models work through the new hierarchy, and the infrastructure (metrics, visualization, training loop) is ready for ensemble models.
+
+---
+
+## Coding Period Phase 2: Probabilistic Model Integration (Weeks 7–12)
+
+### Week 7 (July 14–20): EnsembleForecaster & StochasticStepPredictor
+
+**Deliverables:**
+- [ ] Create `neural_lam/forecasters/ensemble_ar.py` with `EnsembleARForecaster`
+- [ ] Create `neural_lam/predictors/stochastic.py` with `StochasticStepPredictor` abstract class
+- [ ] Implement ensemble sampling loop in `EnsembleARForecaster.forward()`
+- [ ] Add `num_ensemble_train` and `num_ensemble_eval` config parameters
+- [ ] Write unit tests for `EnsembleARForecaster` with a mock stochastic predictor
+
+**Acceptance:** `EnsembleARForecaster` correctly produces [(B, E, T, N, d_f)](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/metrics.py#87-109) tensors.
+
+### Week 8 (July 21–27): Graph-EFM Model Port — Architecture
+
+**Deliverables:**
+- [ ] Port `PropagationNet` GNN layer from `prob_model_lam` branch to main
+- [ ] Create `neural_lam/predictors/graph_efm.py` implementing `StochasticStepPredictor`
+- [ ] Port latent encoder and decoder modules from `prob_model_lam`
+- [ ] Wire KL divergence loss through `forward_with_kl()` interface
+- [ ] Write unit tests for `GraphEFMPredictor` forward/sample methods
+
+**Acceptance:** `GraphEFMPredictor` forward pass runs without errors. KL divergence is correctly computed.
+
+### Week 9 (July 28–August 3): Graph-EFM Model Port — Training Loop
+
+**Deliverables:**
+- [ ] Extend `ForecasterModule._compute_loss()` for variational loss (reconstruction + β·KL)
+- [ ] Add KL annealing schedule support
+- [ ] Wire Graph-EFM through `ForecasterModule` for full training loop
+- [ ] Run a short training experiment (10 epochs) on MEPS data
+- [ ] Compare training loss curves with `prob_model_lam` branch
+
+**Acceptance:** Graph-EFM trains through the new architecture. Loss curves match `prob_model_lam` branch within 5%.
+
+### Week 10 (August 4–10): Graph-EFM Evaluation & Ensemble Output
+
+**Deliverables:**
+- [ ] Run full evaluation of Graph-EFM generating 50-member ensembles
+- [ ] Compute CRPS, spread, rank histogram on test set
+- [ ] Generate ensemble visualizations for sample forecasts
+- [ ] Compare metrics against published Graph-EFM results
+- [ ] Profile ensemble generation performance (time per 50-member ensemble)
+
+**Acceptance:** Graph-EFM produces reasonable ensemble forecasts. CRPS values are in the same ballpark as published results.
+
+### Week 11 (August 11–17): Code Freeze & Documentation
+
+**Deliverables:**
+- [ ] Code freeze: no new features, only bug fixes
+- [ ] Write comprehensive docstrings for all new classes and functions
+- [ ] Create `docs/architecture.md` explaining the new model hierarchy
+- [ ] Create `docs/probabilistic_models.md` tutorial
+- [ ] Create a Jupyter notebook: `examples/ensemble_forecasting.ipynb`
+- [ ] Update [README.md](file:///c:/Users/aftab/Desktop/neural-lam/README.md) with information about probabilistic forecasting support
+
+**Acceptance:** All documentation is clear, complete, and accurate.
+
+### Week 12 (August 18–24): Final Testing & Submission
+
+**Deliverables:**
+- [ ] Run full CI test suite
+- [ ] Run end-to-end integration test: train Graph-EFM → evaluate → visualize
+- [ ] Address any remaining code review feedback from mentors
+- [ ] Write final project report / blog post
+- [ ] Prepare final PR(s) for merging
+
+**Acceptance:** All tests pass. The PR is ready for merge. Final report submitted.
+
+---
+
+# 8. Past Experience
+
+### Machine Learning & Deep Learning
+- Strong foundation in **PyTorch**, including custom `nn.Module` design, autograd, distributed training, and the PyTorch Lightning framework
+- Experience with **graph neural networks** — implemented GNNs for molecular property prediction using PyTorch Geometric
+- Familiar with **variational inference** — implemented VAEs and normalizing flows for generative modeling projects
+- Experience with **probabilistic forecasting**: implemented Bayesian neural networks for time-series uncertainty quantification
+
+### Open-Source Contributions
+- **neural-lam** (6 PRs merged/in-review) — see [Section 6](#6-my-contributions)
+- Active contributor to open-source ML projects with a focus on code quality, testing, and documentation
+
+### GitHub
+- [github.com/AftAb-25](https://github.com/AftAb-25)
+
+---
+
+# 9. Why Me?
+
+### 1. I Know This Codebase Inside-Out
+With 6 PRs across [ARModel](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/models/ar_model.py#24-771), [metrics.py](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/metrics.py), [vis.py](file:///c:/Users/aftab/Desktop/neural-lam/neural_lam/vis.py), and the datastore layer, I have hands-on experience with the exact components this project will restructure. I don't need to "ramp up" — I've already been reading the code, finding bugs, and fixing them.
+
+### 2. My Contributions Target the Right Areas
+My PRs are not scattered across unrelated features. They specifically address:
+- **Metric aggregation** (PRs #303, #388) → the exact pipeline that needs ensemble-aware extensions
+- **Visualization** (PR #340) → the exact module that needs ensemble plotting
+- **Testing** (PR #440) → the testing infrastructure for regression verification
+- **Data handling** (PRs #333, #386) → the datastore integrity for reliable experiments
+
+### 3. I Understand the Scientific Context
+This isn't just a code refactoring project — it's a scientific software engineering challenge. I understand:
+- Why ensemble forecasts matter for weather prediction
+- How CRPS differs from MSE as an evaluation metric
+- What a rank histogram tells you about ensemble calibration
+- How variational inference enables stochastic weather models
+
+### 4. I Have the Technical Depth
+The project requires comfort with:
+- **PyTorch Lightning module patterns** — I've worked with train/val/test steps, distributed training, metric logging
+- **Graph neural network architectures** — I understand message passing, hierarchical graphs, and how they map to weather prediction grids
+- **Variational generative models** — I'm comfortable with ELBO, KL divergence, reparameterization trick, and posterior collapse mitigation
+
+### 5. I Communicate and Collaborate Well
+My PR history shows respectful, responsive engagement with maintainers. I respond to code review feedback promptly and iterate until the code meets the project's quality standards.
+
+---
+
+# 10. Communication Plan
+
+| Channel | Purpose | Frequency |
+|---------|---------|-----------|
+| **Slack (#gsoc-project3)** | Quick questions, blockers, informal updates | Daily |
+| **GitHub PRs** | Code review, technical discussion | Per PR (1–2 per week) |
+| **Weekly Sync (Video)** | Progress review, design decisions, mentorship | Weekly (30 min) |
+| **Written Updates** | Detailed weekly progress report with code links | Weekly (every Friday) |
+| **Blog Posts** | Public-facing project updates | Bi-weekly |
+
+### My Commitments:
+1. **Responsiveness**: I will respond to mentor messages within 24 hours (typically much faster).
+2. **Transparency**: I will flag blockers immediately rather than struggling silently.
+3. **Early PRs**: I will open draft PRs early to get feedback before investing too much in the wrong direction.
+4. **Documentation-first**: For design decisions, I will write a brief design doc and share on Slack for discussion before coding.
+
+### Time Availability
+- **30+ hours per week** dedicated to GSoC work
+- **Timezone**: IST (UTC+5:30) — overlap with European mentors during morning/afternoon hours
+- **No major commitments** during the coding period (May–August 2025)
+
+---
+
+# 11. Future Work (Post-GSoC)
+
+This project lays the *foundation* for probabilistic weather prediction in neural-lam. After GSoC, I plan to continue contributing in these directions:
+
+### Immediate Follow-ups (3–6 months post-GSoC)
+1. **Diffusion-LAM Integration**: Port the Diffusion-LAM model (arXiv:2502.07532) into the architecture — it uses a fundamentally different generative approach (conditional diffusion) that the new `Forecaster` abstraction can accommodate via a `DiffusionForecaster` class.
+
+2. **Non-Autoregressive Forecasters**: Implement a `DirectForecaster` subclass for models that predict entire forecast sequences in one forward pass, enabling comparison of AR vs. direct strategies.
+
+3. **Ensemble Post-Processing**: Add calibration methods (e.g., EMOS, Bayesian model averaging) as post-processing steps that work with the ensemble output format.
+
+### Longer-Term (6–12 months)
+4. **Benchmark Suite**: Create a standardized probabilistic forecasting benchmark on the MEPS dataset, comparing Graph-EFM, Diffusion-LAM, and traditional NWP ensembles.
+
+5. **Operational Readiness**: Work on inference optimization — batch ensemble generation, TorchScript compilation, and efficient memory usage for operational deployment at national weather services.
+
+6. **Multi-Scale Ensembles**: Explore ensemble generation at different spatial scales using the hierarchical graph structure, enabling coarse-to-fine uncertainty representation.
+
+---
+
+# 12. About Me
+
+## Aftab Gopi
+
+**Computer Science Student** | Open-Source Contributor | ML Researcher
+
+### Education
+- **B.Tech in Computer Science & Engineering**, Medhavi Skills University
+- Focus areas: Machine Learning, Deep Learning, Scientific Computing
+
+### Technical Skills
+
+| Category | Skills |
+|----------|--------|
+| **Languages** | Python (expert), Shell/Bash, C++ |
+| **ML Frameworks** | PyTorch, PyTorch Lightning, PyTorch Geometric, TensorFlow |
+| **Scientific Python** | NumPy, xarray, Pandas, SciPy, Matplotlib, Cartopy |
+| **DevOps & Tools** | Git, GitHub Actions, Docker, pre-commit, pytest |
+| **Domains** | Weather/Climate ML, Graph Neural Networks, Generative Models, Probabilistic Forecasting |
+
+### Open-Source Profile
+- **GitHub**: [github.com/AftAb-25](https://github.com/AftAb-25)
+- **neural-lam contributions**: 6 PRs (metrics, visualization, testing, data handling)
+- Active in scientific Python community
+
+### What Drives Me
+I'm passionate about applying machine learning to real-world scientific problems, particularly in weather and climate. Weather prediction is one of the few ML domains where improved models have immediate, tangible impact on millions of people — from disaster preparedness to agricultural planning. Contributing to neural-lam is not just a coding project for me; it's an opportunity to help build the infrastructure that will power the next generation of weather forecasting.
+
+### Contact
+- **Email**: aftab123215@gmail.com
+- **Phone**: +91 8637330122
+- **GitHub**: [github.com/AftAb-25](https://github.com/AftAb-25)
+- **LinkedIn**: [linkedin.com/in/aftab-ali-86149b369](https://www.linkedin.com/in/aftab-ali-86149b369/)
+- **Slack**: @AftAb (MLLAM workspace)
+- **Timezone**: IST (UTC+5:30)
+
+---
+
+<div align="center">
+
+*Thank you for considering my proposal. I look forward to contributing to the MLLAM community and making probabilistic forecasting a first-class citizen in neural-lam.*
+
+---
+
+**Aftab Gopi** | GSoC 2025 Applicant | MLLAM / Neural-LAM
+
+</div>
+
+---
+
+## Appendix A: Strengths & Suggestions for Improvement
+
+### Strengths of This Proposal
+1. **Directly addresses both related issues** (#49 and #62) in a coherent plan
+2. **Backward compatible** — existing deterministic models continue to work unchanged  
+3. **Concrete code snippets** — not just hand-waving about architecture, but actual class interfaces
+4. **Measurable acceptance criteria** — each week has clear pass/fail conditions
+5. **Builds on proven contributions** — the applicant has already shipped code in the relevant areas
+
+### Potential Weaknesses & Mitigations
+1. **Scope risk**: 350 hours is tight for architecture refactoring + model integration + docs. *Mitigation*: The community bonding period includes a working PoC, and the midterm checkpoint ensures the architecture is solid before moving to model integration. If needed, the Graph-EFM integration can be a separate follow-up PR.
+
+2. **Backward compatibility**: Refactoring the model hierarchy could break existing user workflows. *Mitigation*: Keep the old class names as thin wrappers that emit deprecation warnings. Run the full test suite after every major change.
+
+3. **Performance**: Ensemble generation (50 members) is 50x more expensive than deterministic forecasting. *Mitigation*: The `EnsembleARForecaster` generates members in parallel (batched over the ensemble dimension). Profile and optimize during Week 10.
+
+4. **Dependency on Issue #49**: The class hierarchy refactoring (Issue #49) is a prerequisite that may not be fully agreed upon by mentors. *Mitigation*: Start the community bonding with a design doc and get explicit sign-off on the class design before coding begins.
+
+### Suggestions to Make This Proposal Even Stronger
+1. **Add a PoC branch link** — implement a minimal working prototype during the community bonding period and link it
+2. **Include benchmark numbers** — if possible, run the existing `prob_model_lam` branch and report baseline CRPS numbers
+3. **Engage more on Slack** — mentors value genuine engagement; participate in `#gsoc-project3` discussions with thoughtful technical questions
+4. **Review existing PRs** — reviewing other contributors' code demonstrates collaborative ability
+]]>
